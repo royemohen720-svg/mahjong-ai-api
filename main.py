@@ -5,12 +5,12 @@ import os
 
 app = FastAPI()
 
-# 自动加载仓库根目录下的所有 .png 图片作为模板
+# 自动加载仓库根目录下的所有 .PNG 图片作为模板
 templates = {}
 for file in os.listdir("."):
-    if file.endswith(".png"):
+    if file.endswith(".PNG"):  # 已修改为大写匹配
         # 读取图片，转为灰度图
-        templates[file.replace(".png", "")] = cv2.imread(file, 0)
+        templates[file.replace(".PNG", "")] = cv2.imread(file, 0)
 
 @app.post("/analyze")
 async def analyze_screen(file: UploadFile = File(...)):
@@ -18,19 +18,29 @@ async def analyze_screen(file: UploadFile = File(...)):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
+    
+    if img is None:
+        return {"status": "error", "title": "图片读取失败", "body": "请检查上传图片"}
+        
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
 
-    # 2. 核心识别逻辑：在这里循环匹配所有模板
+    # 2. 核心识别逻辑：循环匹配所有模板
     results = []
-    # 这里是一个简单的匹配演示，实际项目中会对截图区域进行切片匹配
+    # 设置匹配阈值 (0.8 代表80%相似度)
+    threshold = 0.8
+    
     for name, template in templates.items():
         res = cv2.matchTemplate(gray, template, cv2.TM_CCOEFF_NORMED)
-        min_val, max_val, min_loc, max_loc = cv2.minMaxLoc(res)
-        if max_val > 0.8:  # 匹配度阈值，大于 80% 认为识别到了
+        _, max_val, _, _ = cv2.minMaxLoc(res)
+        if max_val >= threshold:
             results.append(name)
             
+    # 3. 返回结果
+    if not results:
+        return {"status": "success", "title": "未识别到牌", "body": "请确保截图包含手牌"}
+    
     return {
         "status": "success",
-        "title": "🥇 识别结果: " + ",".join(results[:14]), # 只取前14张牌
-        "body": "已自动对比你的真牌库"
+        "title": "🥇 识别结果: " + ",".join(results[:14]),
+        "body": f"共识别到 {len(results)} 张牌"
     }
